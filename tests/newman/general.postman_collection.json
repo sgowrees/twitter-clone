@@ -1,0 +1,247 @@
+{
+  "info": {
+    "name": "Twitter Clone API",
+    "_postman_id": "twitter-clone-newman",
+    "description": "Newman API tests for Twitter Clone",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "username", "value": "" },
+    { "key": "email", "value": "" },
+    { "key": "password", "value": "Password123!" },
+    { "key": "token", "value": "" },
+    { "key": "userId", "value": "" },
+    { "key": "postId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Register User",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const unique = Date.now();",
+              "pm.collectionVariables.set('username', 'newmanuser_' + unique);",
+              "pm.collectionVariables.set('email', 'newmanuser_' + unique + '@test.com');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Register succeeds with a fresh user', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has a token', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.token).to.be.a('string').and.not.empty;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"email\": \"{{email}}\",\n  \"displayName\": \"Newman User\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "register"]
+        }
+      }
+    },
+    {
+      "name": "Login User",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Login successful', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "const response = pm.response.json();",
+              "",
+              "pm.test('Response has a token', function () {",
+              "    pm.expect(response.token).to.be.a('string').and.not.empty;",
+              "});",
+              "",
+              "pm.test('Response has matching userId and username', function () {",
+              "    pm.expect(response.userId).to.exist;",
+              "    pm.expect(response.username).to.eql(pm.collectionVariables.get('username'));",
+              "});",
+              "",
+              "pm.collectionVariables.set('token', response.token);",
+              "pm.collectionVariables.set('userId', String(response.userId));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"usernameOrEmail\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "login"]
+        }
+      }
+    },
+    {
+      "name": "Create Post",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const token = pm.collectionVariables.get('token');",
+              "if (!token) {",
+              "    throw new Error('No token available. Login must succeed first.');",
+              "}"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Post created', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "const response = pm.response.json();",
+              "",
+              "pm.test('Response has an id', function () {",
+              "    pm.expect(response.id).to.exist;",
+              "});",
+              "",
+              "pm.collectionVariables.set('postId', String(response.id));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"content\": \"POWER\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users/{{userId}}/posts/create",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "{{userId}}", "posts", "create"]
+        }
+      }
+    },
+    {
+      "name": "Create Comment",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const postId = pm.collectionVariables.get('postId');",
+              "if (!postId) {",
+              "    throw new Error('No postId available. Create Post must succeed first.');",
+              "}"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Comment created', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has an id', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.id).to.exist;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"content\": \"POWER\"\n}"
+        },
+        "url":"{{baseUrl}}/api/users/{{userId}}/posts/{{postId}}/comments/create"
+      }
+    },
+    {
+        "name":"Create like",
+        "event":[
+            {
+                "listen":"test",
+                "script":{
+                    "exec":[
+                         "pm.test('Created like', function(){",
+                            "pm.response.to.have.status(200);",
+                        "});"
+                    ]
+                }
+            }
+        ],
+        "request":{
+            "header":[
+                { "key": "Authorization", "value": "Bearer {{token}}" },
+                { "key": "Content-Type", "value": "application/json" }
+            ],
+            "method":"POST",
+            "url": "{{baseUrl}}/api/users/{{userId}}/posts/{{postId}}/like/toggle"
+        }
+        
+    },
+    {
+        "name": "get Notification",
+        "event":[
+            {
+                "listen":"test",
+                "script":{
+                    "exec":[
+                        "pm.test('Comment created', function () {",
+                        "    pm.response.to.have.status(200);",
+                        "});"
+                    ]
+                }
+            }
+        ],"request":{
+            "method":"GET",
+            "header":[
+                { "key": "Authorization", "value": "Bearer {{token}}" },
+                { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/users/{{userId}}/notifications/unread-count"
+        }
+    }
+  ]
+}
