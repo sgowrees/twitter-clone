@@ -46,6 +46,33 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: maven
+
+      - name: Verify PostgreSQL
+        run: |
+          echo "Checking PostgreSQL..."
+          pg_isready -h localhost -p 5432 -U twitter_app -d twitter_clone
+
+      - name: Verify Redis
+        run: |
+          echo "Checking Redis..."
+          sudo apt-get update
+          sudo apt-get install -y redis-tools
+          redis-cli -h localhost -p 6379 ping
+
+      - name: Build Spring Boot
+        working-directory: backend
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/twitter_clone
+          SPRING_DATASOURCE_USERNAME: twitter_app
+          SPRING_DATASOURCE_PASSWORD: devpassword
+          SPRING_JPA_HIBERNATE_DDL_AUTO: update
+          SPRING_DATA_REDIS_HOST: localhost
+          SPRING_DATA_REDIS_PORT: 6379
+          JWT_SECRET: CHANGE_ME_this_is_a_placeholder_secret_key_32chars_min
+          JWT_EXPIRATION_MS: 86400000
+        run: |
+          mvn clean package -DskipTests
 
       - name: Start Spring Boot
         working-directory: backend
@@ -59,23 +86,45 @@ jobs:
           JWT_SECRET: CHANGE_ME_this_is_a_placeholder_secret_key_32chars_min
           JWT_EXPIRATION_MS: 86400000
         run: |
-          mvn spring-boot:run > spring.log 2>&1 &
+          echo "Starting Spring Boot..."
+
+          nohup mvn spring-boot:run > spring.log 2>&1 &
+
+          SPRING_PID=$!
+          echo "Spring Boot PID: $SPRING_PID"
 
           echo "Waiting for Spring Boot..."
 
-          for i in {1..60}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/actuator/health)
+          for i in {1..90}; do
 
-            if [ "$STATUS" = "200" ]; then
-              echo "Spring Boot is ready!"
+            if ! kill -0 $SPRING_PID 2>/dev/null; then
+              echo "Spring Boot process stopped unexpectedly."
+              echo "===== SPRING LOG ====="
+              cat spring.log
+              exit 1
+            fi
+
+            if curl -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+              echo "Spring Boot is reachable!"
               break
             fi
 
-            echo "Spring Boot status: $STATUS"
+            echo "Waiting... attempt $i/90"
             sleep 2
+
           done
 
-          echo "Final health check:"
+          if ! curl -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+            echo "Spring Boot did not start."
+            echo "===== SPRING LOG ====="
+            cat spring.log
+            exit 1
+          fi
+
+          echo "Spring Boot is ready!"
+
+      - name: Show Spring Boot Health
+        run: |
           curl -i http://localhost:8080/actuator/health
 
       - name: Setup Node.js
@@ -88,4 +137,12 @@ jobs:
 
       - name: Run API tests
         working-directory: tests/newman
-        run: newman run general.postman_collection.json
+        run: |
+          newman run general.postman_collection.json
+
+      - name: Show Spring Boot Logs
+        if: always()
+        working-directory: backend
+        run: |
+          echo "===== SPRING BOOT LOG ====="
+          cat spring.log
