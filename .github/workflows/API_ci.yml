@@ -16,13 +16,13 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: twitter_app
-          POSTGRES_USER: twitteruser
+          POSTGRES_DB: twitter_clone
+          POSTGRES_USER: twitter_app
           POSTGRES_PASSWORD: devpassword
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U twitter_app -d twitter_clone"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -39,9 +39,29 @@ jobs:
 
       - name: Start Spring Boot
         working-directory: backend
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/twitter_clone
+          SPRING_DATASOURCE_USERNAME: twitter_app
+          SPRING_DATASOURCE_PASSWORD: devpassword
+          SPRING_JPA_HIBERNATE_DDL_AUTO: update
+          JWT_SECRET: CHANGE_ME_this_is_a_placeholder_secret_key_32chars_min
+          JWT_EXPIRATION_MS: 86400000
         run: |
-          mvn spring-boot:run &
-          sleep 30
+          mvn spring-boot:run > spring.log 2>&1 &
+          
+          echo "Waiting for Spring Boot..."
+
+          for i in {1..60}; do
+            if curl -s http://localhost:8080/actuator/health > /dev/null; then
+              echo "Spring Boot is ready!"
+              break
+            fi
+
+            echo "Waiting..."
+            sleep 2
+          done
+
+          curl -f http://localhost:8080/actuator/health
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -50,7 +70,7 @@ jobs:
 
       - name: Install Newman
         run: npm install -g newman
-    
-      - name: run api tests
+
+      - name: Run API tests
         working-directory: tests/newman
         run: newman run general.postman_collection.json
