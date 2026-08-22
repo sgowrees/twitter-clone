@@ -27,6 +27,16 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -44,24 +54,29 @@ jobs:
           SPRING_DATASOURCE_USERNAME: twitter_app
           SPRING_DATASOURCE_PASSWORD: devpassword
           SPRING_JPA_HIBERNATE_DDL_AUTO: update
+          SPRING_DATA_REDIS_HOST: localhost
+          SPRING_DATA_REDIS_PORT: 6379
           JWT_SECRET: CHANGE_ME_this_is_a_placeholder_secret_key_32chars_min
           JWT_EXPIRATION_MS: 86400000
         run: |
           mvn spring-boot:run > spring.log 2>&1 &
-          
+
           echo "Waiting for Spring Boot..."
 
           for i in {1..60}; do
-            if curl -s http://localhost:8080/actuator/health > /dev/null; then
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/actuator/health)
+
+            if [ "$STATUS" = "200" ]; then
               echo "Spring Boot is ready!"
               break
             fi
 
-            echo "Waiting..."
+            echo "Spring Boot status: $STATUS"
             sleep 2
           done
 
-          curl -f http://localhost:8080/actuator/health
+          echo "Final health check:"
+          curl -i http://localhost:8080/actuator/health
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
