@@ -146,3 +146,10 @@ jobs:
         run: |
           echo "===== SPRING BOOT LOG ====="
           cat spring.log
+
+
+
+
+
+          =========================
+          
