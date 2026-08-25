@@ -2,6 +2,7 @@ package com.app.twitter_clone.service;
 
 import com.app.twitter_clone.dto.post.PostRequest;
 import com.app.twitter_clone.model.*;
+import com.app.twitter_clone.redis.LikeCountCache;
 import com.app.twitter_clone.repository.CommentRepository;
 import com.app.twitter_clone.repository.FollowRepository;
 import com.app.twitter_clone.repository.LikeRepository;
@@ -21,18 +22,21 @@ public class PostService {
     private final LikeRepository likeRepository;
     private final CommentRepository commentRepository;
     private final FollowRepository followRepository;
+    private final LikeCountCache likeCountCache;
 
     public PostService(
             PostRepository postRepository,
             UserRepository userRepository,
             LikeRepository likeRepository,
             CommentRepository commentRepository,
-            FollowRepository followRepository) {
+            FollowRepository followRepository,
+            LikeCountCache likeCountCache) {
         this.postRepository = postRepository;
         this.userRepository = userRepository;
         this.likeRepository = likeRepository;
         this.commentRepository = commentRepository;
         this.followRepository = followRepository;
+        this.likeCountCache = likeCountCache;
     }
 
     // Creates a post - find user, validate content, save
@@ -48,8 +52,13 @@ public class PostService {
         Post post = new Post();
         post.setContent(request.getContent());
         post.setUser(user);
-        Post saved =  postRepository.save(post);
+        Post saved = postRepository.save(post);
         return saved;
+
+        // Not publishing a NotificationEvent here, unlike like/comment/follow -
+        // a new post has no single recipient. Notifying every follower would be
+        // a fan-out job (one event per follower), a different pattern from the
+        // 1:1 notifications published below.
     }
 
     // Finds a post by id, throws if not found
@@ -61,15 +70,23 @@ public class PostService {
         if (postResult.isEmpty()) {
             throw new RuntimeException("Post not found");
         }
-        return postResult.get();    
+        return postResult.get();
     }
 
-    // Counts likes on a post
+    // Counts likes on a post - checks Redis first, falls back to Postgres on a cache miss
     public long getLikeCount(Long postId) {
         if (postId == null) {
             throw new RuntimeException("Post ID is required");
         }
-        return likeRepository.countByPostId(postId);
+
+        Long cached = likeCountCache.get(postId);
+        if (cached != null) {
+            return cached;
+        }
+
+        long count = likeRepository.countByPostId(postId);
+        likeCountCache.set(postId, count);
+        return count;
     }
 
     // Counts comments on a post
@@ -103,7 +120,7 @@ public class PostService {
             .toList());
 
         return postRepository.findByUserIdInOrderByCreatedAtDesc(userIds);
-        }
+    }
 
     // A user's own posts, newest first
     public List<Post> getUserPosts(Long userId) {
@@ -124,5 +141,6 @@ public class PostService {
         commentRepository.deleteByPostId(postId);
         likeRepository.deleteByPostId(postId);
         postRepository.delete(post);
+        likeCountCache.evict(postId);
     }
 }

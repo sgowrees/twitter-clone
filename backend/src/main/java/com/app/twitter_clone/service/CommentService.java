@@ -3,6 +3,8 @@ package com.app.twitter_clone.service;
 import com.app.twitter_clone.dto.comment.CommentRequest;
 import com.app.twitter_clone.dto.comment.DeleteCommentRequest;
 import com.app.twitter_clone.dto.comment.GetCommentsForPostRequest;
+import com.app.twitter_clone.kafka.NotificationEvent;
+import com.app.twitter_clone.kafka.NotificationEventProducer;
 import com.app.twitter_clone.model.Comment;
 import com.app.twitter_clone.model.Post;
 import com.app.twitter_clone.model.User;
@@ -23,17 +25,17 @@ public class CommentService {
     private final CommentRepository commentRepository;
     private final PostRepository postRepository;
     private final UserRepository userRepository;
-    private final NotificationService notificationService;
+    private final NotificationEventProducer notificationEventProducer;
 
     public CommentService(
             CommentRepository commentRepository,
             PostRepository postRepository,
             UserRepository userRepository,
-            NotificationService notificationService) {
+            NotificationEventProducer notificationEventProducer) {
         this.commentRepository = commentRepository;
         this.postRepository = postRepository;
         this.userRepository = userRepository;
-        this.notificationService = notificationService;
+        this.notificationEventProducer = notificationEventProducer;
     }
 
     // Creates a comment for a post
@@ -58,17 +60,20 @@ public class CommentService {
             throw new RuntimeException("Comment content cannot be empty");
         }
 
+        Post post = postResult.get();
+
         Comment comment = new Comment();
         comment.setContent(request.getContent());
         comment.setUser(userResult.get());
-        comment.setPost(postResult.get());
+        comment.setPost(post);
 
         Comment saved = commentRepository.save(comment);
-        if (!postResult.get().getUser().getId().equals(request.getUserId())) {
-            notificationService.createNotification(
-                postResult.get().getUser().getId(), request.getUserId(),
-                request.getPostId(), NotificationType.COMMENT);
-        }
+
+        notificationEventProducer.publish(new NotificationEvent(
+                post.getUser().getId(), request.getUserId(),
+                request.getPostId(), NotificationType.COMMENT
+        ));
+
         return saved;
     }
 

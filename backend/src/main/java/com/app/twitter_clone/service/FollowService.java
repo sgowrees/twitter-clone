@@ -3,6 +3,8 @@ package com.app.twitter_clone.service;
 import com.app.twitter_clone.dto.follow.GetFollowersRequest;
 import com.app.twitter_clone.dto.follow.GetFollowingRequest;
 import com.app.twitter_clone.dto.follow.ToggleFollowRequest;
+import com.app.twitter_clone.kafka.NotificationEvent;
+import com.app.twitter_clone.kafka.NotificationEventProducer;
 import com.app.twitter_clone.model.Follow;
 import com.app.twitter_clone.model.User;
 import com.app.twitter_clone.model.NotificationType;
@@ -19,13 +21,15 @@ import java.time.LocalDateTime;
 public class FollowService {
     private final FollowRepository followRepository;
     private final UserRepository userRepository;
-    private final NotificationService notificationService;
+    private final NotificationEventProducer notificationEventProducer;
 
-    public FollowService(FollowRepository followRepository, UserRepository userRepository,
-                         NotificationService notificationService) {
+    public FollowService(
+            FollowRepository followRepository,
+            UserRepository userRepository,
+            NotificationEventProducer notificationEventProducer) {
         this.followRepository = followRepository;
         this.userRepository = userRepository;
-        this.notificationService = notificationService;
+        this.notificationEventProducer = notificationEventProducer;
     }
 
     public Follow addFollow(ToggleFollowRequest request) {
@@ -57,8 +61,11 @@ public class FollowService {
         follow.setFollowing(followingResult.get());
 
         Follow saved = followRepository.save(follow);
-        notificationService.createNotification(
-            followingId, followerId, null, NotificationType.FOLLOW);
+
+        notificationEventProducer.publish(new NotificationEvent(
+                followingId, followerId, null, NotificationType.FOLLOW
+        ));
+
         return saved;
     }
 

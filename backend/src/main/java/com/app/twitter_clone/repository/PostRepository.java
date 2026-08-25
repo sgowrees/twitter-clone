@@ -15,10 +15,9 @@ public interface PostRepository extends JpaRepository<Post, Long> {
     // list here to get their posts, newest first.
     List<Post> findByUserIdInOrderByCreatedAtDesc(List<Long> userIds);
 
-    // Used by the global Chirp timeline
-    List<Post> findAllByOrderByCreatedAtDesc();
-
     // Used on the profile page to show total post count
     long countByUserId(Long userId);
-}
 
+    // Powers the explore/discovery feed: every post, newest first
+    List<Post> findAllByOrderByCreatedAtDesc();
+}

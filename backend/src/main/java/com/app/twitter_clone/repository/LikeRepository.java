@@ -19,6 +19,6 @@ public interface LikeRepository extends JpaRepository<Like, Long> {
     // Used when a user clicks "unlike" on a post
     void deleteByUserIdAndPostId(Long userId, Long postId);
 
-    // Deletes likes when their post is deleted
+    // Used when a post is deleted, so its likes don't become orphaned rows
     void deleteByPostId(Long postId);
 }

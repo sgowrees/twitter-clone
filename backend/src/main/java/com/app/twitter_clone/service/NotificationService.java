@@ -51,13 +51,12 @@ public class NotificationService {
         }
 
         Notification saved = notificationRepository.save(notification);
- 
-        // TODO: push over WebSocket to the recipient if they're online
- 
+
+        // WebSocket push happens in NotificationEventConsumer, right after this
+        // method returns - "create the row" and "deliver it live" are kept as
+        // separate concerns so this method stays usable outside the Kafka path too.
+
         return saved;
-
-
-
     }
 
     // A user's notifications, newest first

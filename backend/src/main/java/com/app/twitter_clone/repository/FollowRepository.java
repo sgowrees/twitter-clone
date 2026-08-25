@@ -17,11 +17,12 @@ public interface FollowRepository extends JpaRepository<Follow, Long> {
     // Used when a user clicks "unfollow"
     void deleteByFollowerIdAndFollowingId(Long followerId, Long followingId);
 
-    // Used for the "following" list on a profile page: users that :userId follows
-    List<Follow> findFollowingIdsByFollowerId(Long userId);
+    // Used for the "following" list on a profile page, and to build the home
+    // feed: users that :followerId follows
+    List<Follow> findFollowingIdsByFollowerId(Long followerId);
 
-    // Used for the "followers" list on a profile page: users that follow :userId
-    List<Follow> findFollowerIdsByFollowingId(Long userId);
+    // Used for the "followers" list on a profile page: users that follow :followingId
+    List<Follow> findFollowerIdsByFollowingId(Long followingId);
 
     // Used to show the "following" count on a profile page
     long countByFollowerId(Long userId);
