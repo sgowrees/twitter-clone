@@ -2,38 +2,26 @@ name: CI Regression Suite
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   unit-and-integration-tests:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: maven
-
-      - name: Verify Docker
-        run: |
-          docker version
-          docker info
 
       - name: Run unit and integration tests
         working-directory: ./backend
-        env:
-          DOCKER_HOST: unix:///var/run/docker.sock
-        run: |
-          ./mvnw clean test
+        run: ./mvnw test
 
   api-regression-tests:
     runs-on: ubuntu-latest
@@ -49,7 +37,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U twitter_app -d twitter_clone"
+          --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -58,126 +46,40 @@ jobs:
         image: redis:7
         ports:
           - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: maven
-
-      - name: Verify PostgreSQL
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          pg_isready -h localhost -p 5432 -U twitter_app -d twitter_clone
-
-      - name: Verify Redis
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y redis-tools
-          redis-cli -h localhost -p 6379 ping
 
       - name: Start Kafka
-        run: |
-          docker run -d \
-            --name kafka \
-            -p 9092:9092 \
-            apache/kafka:latest
+        run: docker run -d --name kafka -p 9092:9092 apache/kafka:latest
 
       - name: Wait for Kafka
         run: sleep 15
 
-      - name: Build backend
-        working-directory: ./backend
-        env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/twitter_clone
-          SPRING_DATASOURCE_USERNAME: twitter_app
-          SPRING_DATASOURCE_PASSWORD: devpassword
-          SPRING_JPA_HIBERNATE_DDL_AUTO: update
-          SPRING_DATA_REDIS_HOST: localhost
-          SPRING_DATA_REDIS_PORT: 6379
-          KAFKA_BOOTSTRAP_SERVERS: localhost:9092
-          JWT_SECRET: CHANGE_ME_this_is_a_placeholder_secret_key_32chars_min
-          JWT_EXPIRATION_MS: 86400000
-        run: |
-          ./mvnw clean package -DskipTests
-
       - name: Start backend
         working-directory: ./backend
         env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/twitter_clone
-          SPRING_DATASOURCE_USERNAME: twitter_app
-          SPRING_DATASOURCE_PASSWORD: devpassword
-          SPRING_JPA_HIBERNATE_DDL_AUTO: update
-          SPRING_DATA_REDIS_HOST: localhost
-          SPRING_DATA_REDIS_PORT: 6379
+          DB_URL: jdbc:postgresql://localhost:5432/twitter_clone
+          DB_USERNAME: twitter_app
+          DB_PASSWORD: devpassword
           KAFKA_BOOTSTRAP_SERVERS: localhost:9092
-          JWT_SECRET: CHANGE_ME_this_is_a_placeholder_secret_key_32chars_min
-          JWT_EXPIRATION_MS: 86400000
+          REDIS_HOST: localhost
+          REDIS_PORT: "6379"
+          JWT_SECRET: ci-test-secret-key-32-characters-min
         run: |
-          echo "Starting Spring Boot..."
+          ./mvnw spring-boot:run &
+          npx wait-on http://localhost:8080/actuator/health --timeout 60000
 
-          nohup ./mvnw spring-boot:run > spring.log 2>&1 &
-
-          SPRING_PID=$!
-
-          echo "Spring Boot PID: $SPRING_PID"
-
-          for i in {1..90}; do
-
-            if ! kill -0 $SPRING_PID 2>/dev/null; then
-              echo "Spring Boot stopped unexpectedly."
-              echo "===== SPRING LOG ====="
-              cat spring.log
-              exit 1
-            fi
-
-            if curl -sf http://localhost:8080/actuator/health > /dev/null; then
-              echo "Spring Boot is ready!"
-              break
-            fi
-
-            echo "Waiting for Spring Boot... $i/90"
-            sleep 2
-
-          done
-
-          if ! curl -sf http://localhost:8080/actuator/health > /dev/null; then
-            echo "Spring Boot failed to start."
-            echo "===== SPRING LOG ====="
-            cat spring.log
-            exit 1
-          fi
-
-      - name: Show Spring Boot health
+      - name: Run Newman API regression tests
         run: |
-          curl -i http://localhost:8080/actuator/health
+          npm install -g newman
+          newman run tests/general.postman_collection.json
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
-      - name: Install Newman
-        run: npm install -g newman
-
-      - name: Run API regression tests
-        run: |
-          newman run tests/newman/general.postman_collection.json
-
-      - name: Show Spring Boot logs
-        if: always()
-        working-directory: ./backend
-        run: |
-          echo "===== SPRING BOOT LOG ====="
-          cat spring.log
+    
