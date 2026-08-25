@@ -13,21 +13,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Backend Docker Image
-        run: docker build -t twitter-clone-backend:latest ./backend
+      - name: Verify Docker
+        run: |
+          docker version
+          docker compose version
+
+      - name: Build backend Docker image
+        run: |
+          docker build -t twitter-clone-backend:latest ./backend
 
       - name: Start Docker Compose
-        run: docker compose up -d --build
+        run: |
+          docker compose up -d --build
 
-      - name: Wait for Backend
+      - name: Show Docker containers
+        run: |
+          docker compose ps
+
+      - name: Wait for backend
         run: |
           echo "Waiting for backend..."
 
-          for i in {1..60}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/actuator/health)
+          for i in {1..90}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://localhost:8080/actuator/health || true)
 
             if [ "$STATUS" = "200" ]; then
               echo "Backend is ready!"
@@ -38,19 +50,34 @@ jobs:
             sleep 2
           done
 
+          echo "Final health check:"
           curl -f http://localhost:8080/actuator/health
 
-      - name: Show Docker Containers
-        run: docker compose ps
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-      - name: Show Backend Logs
-        if: always()
-        run: docker compose logs backend
-
-      - name: Run Newman API Tests
+      - name: Install Newman
         run: |
-          docker compose run --rm newman
+          npm install -g newman
+
+      - name: Run Newman API tests
+        working-directory: ./tests/newman
+        run: |
+          newman run general.postman_collection.json
+
+      - name: Show Docker containers
+        if: always()
+        run: |
+          docker compose ps
+
+      - name: Show Docker logs
+        if: always()
+        run: |
+          docker compose logs --no-color
 
       - name: Stop Docker Compose
         if: always()
-        run: docker compose down
+        run: |
+          docker compose down -v
