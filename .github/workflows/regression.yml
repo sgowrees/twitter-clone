@@ -88,8 +88,6 @@ jobs:
 
       - name: Wait for Kafka
         run: |
-          echo "Waiting for Kafka..."
-
           for i in {1..60}; do
             if docker exec kafka \
               /opt/kafka/bin/kafka-broker-api-versions.sh \
@@ -99,18 +97,15 @@ jobs:
               exit 0
             fi
 
-            echo "Kafka not ready yet... $i/60"
             sleep 2
           done
 
-          echo "Kafka failed to start."
           docker logs kafka
           exit 1
 
       - name: Make Maven Wrapper executable
         working-directory: ./backend
-        run: |
-          chmod +x mvnw
+        run: chmod +x mvnw
 
       - name: Run unit and integration tests
         working-directory: ./backend
@@ -129,13 +124,11 @@ jobs:
 
       - name: Show Kafka logs
         if: always()
-        run: |
-          docker logs kafka || true
+        run: docker logs kafka || true
 
       - name: Stop Kafka
         if: always()
-        run: |
-          docker rm -f kafka || true
+        run: docker rm -f kafka || true
 
 
   api-regression-tests:
@@ -144,31 +137,6 @@ jobs:
 
     needs:
       - unit-and-integration-tests
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: twitter_clone
-          POSTGRES_USER: twitter_app
-          POSTGRES_PASSWORD: devpassword
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U twitter_app -d twitter_clone"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
 
     steps:
       - name: Checkout code
@@ -196,39 +164,6 @@ jobs:
           docker version
           docker info
 
-      - name: Start Kafka
-        run: |
-          docker run -d \
-            --name kafka \
-            -p 9092:9092 \
-            apache/kafka:latest
-
-      - name: Wait for Kafka
-        run: |
-          echo "Waiting for Kafka..."
-
-          for i in {1..60}; do
-            if docker exec kafka \
-              /opt/kafka/bin/kafka-broker-api-versions.sh \
-              --bootstrap-server localhost:9092 \
-              > /dev/null 2>&1; then
-              echo "Kafka is ready!"
-              exit 0
-            fi
-
-            echo "Kafka not ready yet... $i/60"
-            sleep 2
-          done
-
-          echo "Kafka failed to start."
-          docker logs kafka
-          exit 1
-
-      - name: Make Maven Wrapper executable
-        working-directory: ./backend
-        run: |
-          chmod +x mvnw
-
       - name: Verify Newman collection
         run: |
           if [ ! -f "tests/newman/general.postman_collection.json" ]; then
@@ -239,41 +174,14 @@ jobs:
 
           ls -lh tests/newman/general.postman_collection.json
 
-      - name: Build backend
-        working-directory: ./backend
-        env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/twitter_clone
-          SPRING_DATASOURCE_USERNAME: twitter_app
-          SPRING_DATASOURCE_PASSWORD: devpassword
-          SPRING_JPA_HIBERNATE_DDL_AUTO: update
-          SPRING_DATA_REDIS_HOST: localhost
-          SPRING_DATA_REDIS_PORT: "6379"
-          KAFKA_BOOTSTRAP_SERVERS: localhost:9092
-          JWT_SECRET: ci-test-secret-key-32-characters-min
-          JWT_EXPIRATION_MS: "86400000"
-        run: |
-          ./mvnw clean package -DskipTests
+      - name: Start Docker Compose services
+        run: docker compose up -d --build
 
-      - name: Start backend
-        working-directory: ./backend
-        env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/twitter_clone
-          SPRING_DATASOURCE_USERNAME: twitter_app
-          SPRING_DATASOURCE_PASSWORD: devpassword
-          SPRING_JPA_HIBERNATE_DDL_AUTO: update
-          SPRING_DATA_REDIS_HOST: localhost
-          SPRING_DATA_REDIS_PORT: "6379"
-          KAFKA_BOOTSTRAP_SERVERS: localhost:9092
-          JWT_SECRET: ci-test-secret-key-32-characters-min
-          JWT_EXPIRATION_MS: "86400000"
-        run: |
-          nohup ./mvnw spring-boot:run > spring.log 2>&1 &
-          echo $! > spring.pid
+      - name: Show Docker Compose status
+        run: docker compose ps
 
       - name: Wait for backend
         run: |
-          echo "Waiting for backend..."
-
           for i in {1..90}; do
             if curl --fail --silent \
               http://localhost:8080/actuator/health \
@@ -283,22 +191,12 @@ jobs:
             fi
 
             echo "Waiting for backend... $i/90"
-
-            if [ -f backend/spring.pid ]; then
-              PID=$(cat backend/spring.pid)
-
-              if ! kill -0 "$PID" 2>/dev/null; then
-                echo "Backend process stopped unexpectedly."
-                cat backend/spring.log || true
-                exit 1
-              fi
-            fi
-
             sleep 2
           done
 
           echo "Backend failed to start."
-          cat backend/spring.log || true
+          docker compose ps
+          docker compose logs backend
           exit 1
 
       - name: Verify backend
@@ -314,27 +212,13 @@ jobs:
             --reporters cli \
             --color on
 
-      - name: Show backend logs
+      - name: Show Docker Compose logs
         if: always()
-        run: |
-          cat backend/spring.log || true
+        run: docker compose logs
 
-      - name: Show Kafka logs
+      - name: Stop Docker Compose
         if: always()
-        run: |
-          docker logs kafka || true
-
-      - name: Stop backend
-        if: always()
-        run: |
-          if [ -f backend/spring.pid ]; then
-            kill "$(cat backend/spring.pid)" || true
-          fi
-
-      - name: Stop Kafka
-        if: always()
-        run: |
-          docker rm -f kafka || true
+        run: docker compose down -v
 
 
   build-production:
@@ -357,8 +241,7 @@ jobs:
 
       - name: Make Maven Wrapper executable
         working-directory: ./backend
-        run: |
-          chmod +x mvnw
+        run: chmod +x mvnw
 
       - name: Build production JAR
         working-directory: ./backend
@@ -438,13 +321,13 @@ jobs:
       - name: Start production application
         working-directory: ./production
         env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/twitter_clone
+          SPRING_DATASOURCE_URL: jdbc:postgresql://twitter-clone-postgres:5432/twitter_clone
           SPRING_DATASOURCE_USERNAME: twitter_app
           SPRING_DATASOURCE_PASSWORD: devpassword
           SPRING_JPA_HIBERNATE_DDL_AUTO: update
-          SPRING_DATA_REDIS_HOST: localhost
+          SPRING_DATA_REDIS_HOST: twitter-clone-redis
           SPRING_DATA_REDIS_PORT: "6379"
-          KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+          KAFKA_BOOTSTRAP_SERVERS: twitter-clone-kafka:29092
           JWT_SECRET: ci-test-secret-key-32-characters-min
           JWT_EXPIRATION_MS: "86400000"
         run: |
