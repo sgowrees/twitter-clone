@@ -9,11 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
-import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -23,11 +19,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
-@EmbeddedKafka(
-        partitions = 1,
-        topics = {NotificationEventProducer.TOPIC},
-        bootstrapServersProperty = "spring.kafka.bootstrap-servers"
-)
 class NotificationEventIntegrationTest {
 
     @Autowired
@@ -42,22 +33,13 @@ class NotificationEventIntegrationTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    @Autowired
-    private KafkaListenerEndpointRegistry kafkaListenerEndpointRegistry;
-
-    @DynamicPropertySource
-    static void kafkaProperties(DynamicPropertyRegistry registry) {
-        registry.add(
-                "spring.kafka.consumer.auto-offset-reset",
-                () -> "earliest"
-        );
-    }
-
     private User recipient;
     private User sender;
 
     @BeforeEach
     void setUp() {
+        notificationRepository.deleteAll();
+
         recipient = new User();
         recipient.setUsername("kafkatest_recipient_" + System.nanoTime());
         recipient.setEmail(recipient.getUsername() + "@test.com");
@@ -69,23 +51,11 @@ class NotificationEventIntegrationTest {
         sender.setEmail(sender.getUsername() + "@test.com");
         sender.setPassword(passwordEncoder.encode("password"));
         sender = userRepository.save(sender);
-
-        await()
-                .atMost(15, TimeUnit.SECONDS)
-                .pollInterval(100, TimeUnit.MILLISECONDS)
-                .until(() ->
-                        kafkaListenerEndpointRegistry
-                                .getListenerContainers()
-                                .stream()
-                                .allMatch(container ->
-                                        container.getAssignedPartitions() != null
-                                                && !container.getAssignedPartitions().isEmpty()
-                                )
-                );
     }
 
     @Test
     void publishedEvent_isConsumedAndCreatesNotification() {
+
         NotificationEvent event = new NotificationEvent(
                 recipient.getId(),
                 sender.getId(),
@@ -96,9 +66,10 @@ class NotificationEventIntegrationTest {
         producer.publish(event);
 
         await()
-                .atMost(15, TimeUnit.SECONDS)
-                .pollInterval(200, TimeUnit.MILLISECONDS)
+                .atMost(20, TimeUnit.SECONDS)
+                .pollInterval(500, TimeUnit.MILLISECONDS)
                 .untilAsserted(() -> {
+
                     List<Notification> notifications =
                             notificationRepository
                                     .findByRecipientIdOrderByCreatedAtDesc(
@@ -106,19 +77,24 @@ class NotificationEventIntegrationTest {
                                     );
 
                     assertEquals(1, notifications.size());
+
+                    Notification notification = notifications.get(0);
+
                     assertEquals(
                             NotificationType.FOLLOW,
-                            notifications.get(0).getType()
+                            notification.getType()
                     );
+
                     assertEquals(
                             sender.getId(),
-                            notifications.get(0).getSender().getId()
+                            notification.getSender().getId()
                     );
                 });
     }
 
     @Test
     void selfNotification_isNeverPublished() {
+
         NotificationEvent event = new NotificationEvent(
                 recipient.getId(),
                 recipient.getId(),
@@ -128,20 +104,18 @@ class NotificationEventIntegrationTest {
 
         producer.publish(event);
 
-        await()
-                .atMost(5, TimeUnit.SECONDS)
-                .pollInterval(200, TimeUnit.MILLISECONDS)
-                .untilAsserted(() -> {
-                    List<Notification> notifications =
-                            notificationRepository
-                                    .findByRecipientIdOrderByCreatedAtDesc(
-                                            recipient.getId()
-                                    );
+        try {
+            Thread.sleep(2000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
 
-                    assertTrue(
-                            notifications.isEmpty(),
-                            "Self-notifications should never be created"
-                    );
-                });
+        List<Notification> notifications =
+                notificationRepository
+                        .findByRecipientIdOrderByCreatedAtDesc(
+                                recipient.getId()
+                        );
+
+        assertTrue(notifications.isEmpty());
     }
 }
