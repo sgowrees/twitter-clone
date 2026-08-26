@@ -1,45 +1,50 @@
 package com.app.twitter_clone.kafka;
 
-import com.app.twitter_clone.dto.notification.NotificationResponse;
-import com.app.twitter_clone.mapper.NotificationMapper;
 import com.app.twitter_clone.model.Notification;
-import com.app.twitter_clone.service.NotificationService;
+import com.app.twitter_clone.model.NotificationType;
+import com.app.twitter_clone.model.User;
+import com.app.twitter_clone.repository.NotificationRepository;
+import com.app.twitter_clone.repository.UserRepository;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
-@Component
+@Service
 public class NotificationEventConsumer {
 
-    private final NotificationService notificationService;
-    private final NotificationMapper notificationMapper;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final NotificationRepository notificationRepository;
+    private final UserRepository userRepository;
 
     public NotificationEventConsumer(
-            NotificationService notificationService,
-            NotificationMapper notificationMapper,
-            SimpMessagingTemplate messagingTemplate) {
-        this.notificationService = notificationService;
-        this.notificationMapper = notificationMapper;
-        this.messagingTemplate = messagingTemplate;
+            NotificationRepository notificationRepository,
+            UserRepository userRepository) {
+        this.notificationRepository = notificationRepository;
+        this.userRepository = userRepository;
     }
 
-    @KafkaListener(topics = NotificationEventProducer.TOPIC, groupId = "twitter-clone")
-    public void handle(NotificationEvent event) {
-        Notification notification = notificationService.createNotification(
-                event.getRecipientId(),
-                event.getSenderId(),
-                event.getPostId(),
-                event.getType()
-        );
+    @KafkaListener(
+            topics = NotificationEventProducer.TOPIC,
+            groupId = "twitter-clone"
+    )
+    public void consume(NotificationEvent event) {
 
-        NotificationResponse response = notificationMapper.toResponse(notification);
+        User recipient = userRepository
+                .findById(event.getRecipientId())
+                .orElseThrow();
 
-        // Any client subscribed to /topic/notifications/{recipientId} receives this
-        // in real time, in addition to it being available via GET /notifications later.
-        messagingTemplate.convertAndSend(
-                "/topic/notifications/" + event.getRecipientId(),
-                response
-        );
+        User sender = null;
+
+        if (event.getSenderId() != null) {
+            sender = userRepository
+                    .findById(event.getSenderId())
+                    .orElse(null);
+        }
+
+        Notification notification = new Notification();
+
+        notification.setRecipient(recipient);
+        notification.setSender(sender);
+        notification.setType(event.getType());
+
+        notificationRepository.save(notification);
     }
 }

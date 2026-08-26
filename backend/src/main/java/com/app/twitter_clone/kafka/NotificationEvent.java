@@ -12,7 +12,12 @@ public class NotificationEvent {
     public NotificationEvent() {
     }
 
-    public NotificationEvent(Long recipientId, Long senderId, Long postId, NotificationType type) {
+    public NotificationEvent(
+            Long recipientId,
+            Long senderId,
+            Long postId,
+            NotificationType type) {
+
         this.recipientId = recipientId;
         this.senderId = senderId;
         this.postId = postId;
