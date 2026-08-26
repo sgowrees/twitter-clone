@@ -4,6 +4,7 @@ import com.app.twitter_clone.dto.notification.NotificationResponse;
 import com.app.twitter_clone.mapper.NotificationMapper;
 import com.app.twitter_clone.model.Notification;
 import com.app.twitter_clone.service.NotificationService;
+
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
@@ -18,14 +19,27 @@ public class NotificationEventConsumer {
     public NotificationEventConsumer(
             NotificationService notificationService,
             NotificationMapper notificationMapper,
-            SimpMessagingTemplate messagingTemplate) {
+            SimpMessagingTemplate messagingTemplate
+    ) {
         this.notificationService = notificationService;
         this.notificationMapper = notificationMapper;
         this.messagingTemplate = messagingTemplate;
     }
 
-    @KafkaListener(topics = NotificationEventProducer.TOPIC, groupId = "twitter-clone")
+    @KafkaListener(
+            topics = NotificationEventProducer.TOPIC,
+            groupId = "twitter-clone"
+    )
     public void handle(NotificationEvent event) {
+
+        if (event == null) {
+            return;
+        }
+
+        if (event.getRecipientId() == null) {
+            return;
+        }
+
         Notification notification = notificationService.createNotification(
                 event.getRecipientId(),
                 event.getSenderId(),
@@ -33,10 +47,18 @@ public class NotificationEventConsumer {
                 event.getType()
         );
 
-        NotificationResponse response = notificationMapper.toResponse(notification);
+        NotificationResponse response =
+                notificationMapper.toResponse(notification);
 
-        // Any client subscribed to /topic/notifications/{recipientId} receives this
-        // in real time, in addition to it being available via GET /notifications later.
+        /*
+         * Send the notification to the user's WebSocket destination.
+         *
+         * Example:
+         * /topic/notifications/5
+         *
+         * A client subscribed to that destination receives the
+         * notification immediately.
+         */
         messagingTemplate.convertAndSend(
                 "/topic/notifications/" + event.getRecipientId(),
                 response

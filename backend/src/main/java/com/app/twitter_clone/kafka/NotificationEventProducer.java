@@ -10,16 +10,30 @@ public class NotificationEventProducer {
 
     private final KafkaTemplate<String, NotificationEvent> kafkaTemplate;
 
-    public NotificationEventProducer(KafkaTemplate<String, NotificationEvent> kafkaTemplate) {
+    public NotificationEventProducer(
+            KafkaTemplate<String, NotificationEvent> kafkaTemplate
+    ) {
         this.kafkaTemplate = kafkaTemplate;
     }
 
     public void publish(NotificationEvent event) {
-        // Skip notifying yourself (e.g. liking or commenting on your own post)
-        if (event.getRecipientId().equals(event.getSenderId())) {
+
+        if (event == null) {
             return;
         }
 
-        kafkaTemplate.send(TOPIC, event);
+        Long recipientId = event.getRecipientId();
+        Long senderId = event.getSenderId();
+
+        // Do not notify users about their own actions.
+        if (recipientId != null && recipientId.equals(senderId)) {
+            return;
+        }
+
+        kafkaTemplate.send(
+                TOPIC,
+                String.valueOf(recipientId),
+                event
+        );
     }
 }
