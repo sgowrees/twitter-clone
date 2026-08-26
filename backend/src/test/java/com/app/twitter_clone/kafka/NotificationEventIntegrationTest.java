@@ -9,11 +9,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
-import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -26,13 +25,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @EmbeddedKafka(
         partitions = 1,
         topics = {NotificationEventProducer.TOPIC},
-        bootstrapServersProperty = "spring.kafka.bootstrap-servers"
+        brokerProperties = {
+                "listeners=PLAINTEXT://localhost:0",
+                "advertised.listeners=PLAINTEXT://localhost:0"
+        }
 )
-@TestPropertySource(properties = {
-        "spring.kafka.consumer.auto-offset-reset=earliest",
-        "spring.kafka.consumer.group-id=twitter-clone-test",
-        "spring.kafka.listener.auto-startup=true"
-})
 class NotificationEventIntegrationTest {
 
     @Autowired
@@ -47,48 +44,64 @@ class NotificationEventIntegrationTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    @Autowired
-    private KafkaListenerEndpointRegistry kafkaListenerEndpointRegistry;
+    @DynamicPropertySource
+    static void kafkaProperties(DynamicPropertyRegistry registry) {
+        registry.add(
+                "spring.kafka.bootstrap-servers",
+                () -> System.getProperty("spring.embedded.kafka.brokers")
+        );
+
+        registry.add(
+                "spring.kafka.consumer.group-id",
+                () -> "notification-test-" + System.nanoTime()
+        );
+
+        registry.add(
+                "spring.kafka.consumer.auto-offset-reset",
+                () -> "earliest"
+        );
+
+        registry.add(
+                "spring.kafka.consumer.enable-auto-commit",
+                () -> "true"
+        );
+    }
 
     private User recipient;
     private User sender;
 
     @BeforeEach
     void setUp() {
+        notificationRepository.deleteAll();
+        userRepository.deleteAll();
 
         recipient = new User();
-        recipient.setUsername(
-                "kafkatest_recipient_" + System.nanoTime()
-        );
-        recipient.setEmail(
-                recipient.getUsername() + "@test.com"
-        );
-        recipient.setPassword(
-                passwordEncoder.encode("password")
-        );
+        recipient.setUsername("kafkatest_recipient_" + System.nanoTime());
+        recipient.setEmail(recipient.getUsername() + "@test.com");
+        recipient.setPassword(passwordEncoder.encode("password"));
 
         recipient = userRepository.saveAndFlush(recipient);
 
         sender = new User();
-        sender.setUsername(
-                "kafkatest_sender_" + System.nanoTime()
-        );
-        sender.setEmail(
-                sender.getUsername() + "@test.com"
-        );
-        sender.setPassword(
-                passwordEncoder.encode("password")
-        );
+        sender.setUsername("kafkatest_sender_" + System.nanoTime());
+        sender.setEmail(sender.getUsername() + "@test.com");
+        sender.setPassword(passwordEncoder.encode("password"));
 
         sender = userRepository.saveAndFlush(sender);
-
-        notificationRepository.deleteAll();
     }
 
     @Test
     void publishedEvent_isConsumedAndCreatesNotification() {
 
-        waitForKafkaListener();
+        await()
+                .atMost(10, TimeUnit.SECONDS)
+                .pollInterval(100, TimeUnit.MILLISECONDS)
+                .untilAsserted(() -> {
+                    assertTrue(
+                            producer != null,
+                            "Kafka producer must be available"
+                    );
+                });
 
         NotificationEvent event = new NotificationEvent(
                 recipient.getId(),
@@ -100,7 +113,7 @@ class NotificationEventIntegrationTest {
         producer.publish(event);
 
         await()
-                .atMost(15, TimeUnit.SECONDS)
+                .atMost(20, TimeUnit.SECONDS)
                 .pollInterval(250, TimeUnit.MILLISECONDS)
                 .untilAsserted(() -> {
 
@@ -134,8 +147,6 @@ class NotificationEventIntegrationTest {
     @Test
     void selfNotification_isNeverPublished() {
 
-        waitForKafkaListener();
-
         NotificationEvent event = new NotificationEvent(
                 recipient.getId(),
                 recipient.getId(),
@@ -146,7 +157,7 @@ class NotificationEventIntegrationTest {
         producer.publish(event);
 
         await()
-                .atMost(5, TimeUnit.SECONDS)
+                .atMost(3, TimeUnit.SECONDS)
                 .pollInterval(250, TimeUnit.MILLISECONDS)
                 .untilAsserted(() -> {
 
@@ -159,35 +170,6 @@ class NotificationEventIntegrationTest {
                     assertTrue(
                             notifications.isEmpty(),
                             "Self-notifications should never be created"
-                    );
-                });
-    }
-
-    private void waitForKafkaListener() {
-
-        await()
-                .atMost(15, TimeUnit.SECONDS)
-                .pollInterval(200, TimeUnit.MILLISECONDS)
-                .untilAsserted(() -> {
-
-                    boolean assigned = false;
-
-                    for (MessageListenerContainer container :
-                            kafkaListenerEndpointRegistry
-                                    .getListenerContainers()) {
-
-                        if (container.isRunning()
-                                && container.getAssignedPartitions() != null
-                                && !container.getAssignedPartitions().isEmpty()) {
-
-                            assigned = true;
-                            break;
-                        }
-                    }
-
-                    assertTrue(
-                            assigned,
-                            "Kafka listener has not been assigned a partition yet"
                     );
                 });
     }

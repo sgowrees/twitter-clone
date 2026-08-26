@@ -1,5 +1,6 @@
 package com.app.twitter_clone.kafka;
 
+import com.app.twitter_clone.model.NotificationType;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
@@ -11,7 +12,8 @@ public class NotificationEventProducer {
     private final KafkaTemplate<String, NotificationEvent> kafkaTemplate;
 
     public NotificationEventProducer(
-            KafkaTemplate<String, NotificationEvent> kafkaTemplate) {
+            KafkaTemplate<String, NotificationEvent> kafkaTemplate
+    ) {
         this.kafkaTemplate = kafkaTemplate;
     }
 
@@ -21,11 +23,18 @@ public class NotificationEventProducer {
             return;
         }
 
-        if (event.getSenderId() != null &&
-                event.getRecipientId().equals(event.getSenderId())) {
+        if (event.getSenderId() == null) {
             return;
         }
 
-        kafkaTemplate.send(TOPIC, event);
+        if (event.getRecipientId().equals(event.getSenderId())) {
+            return;
+        }
+
+        kafkaTemplate.send(
+                TOPIC,
+                String.valueOf(event.getRecipientId()),
+                event
+        );
     }
 }

@@ -1,8 +1,6 @@
 package com.app.twitter_clone.kafka;
 
 import com.app.twitter_clone.model.Notification;
-import com.app.twitter_clone.model.NotificationType;
-import com.app.twitter_clone.model.User;
 import com.app.twitter_clone.repository.NotificationRepository;
 import com.app.twitter_clone.repository.UserRepository;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -16,7 +14,8 @@ public class NotificationEventConsumer {
 
     public NotificationEventConsumer(
             NotificationRepository notificationRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository
+    ) {
         this.notificationRepository = notificationRepository;
         this.userRepository = userRepository;
     }
@@ -27,17 +26,23 @@ public class NotificationEventConsumer {
     )
     public void consume(NotificationEvent event) {
 
-        User recipient = userRepository
-                .findById(event.getRecipientId())
+        if (event.getRecipientId() == null) {
+            return;
+        }
+
+        if (event.getSenderId() == null) {
+            return;
+        }
+
+        if (event.getRecipientId().equals(event.getSenderId())) {
+            return;
+        }
+
+        var recipient = userRepository.findById(event.getRecipientId())
                 .orElseThrow();
 
-        User sender = null;
-
-        if (event.getSenderId() != null) {
-            sender = userRepository
-                    .findById(event.getSenderId())
-                    .orElse(null);
-        }
+        var sender = userRepository.findById(event.getSenderId())
+                .orElseThrow();
 
         Notification notification = new Notification();
 
