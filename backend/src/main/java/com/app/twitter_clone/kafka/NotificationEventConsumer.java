@@ -1,55 +1,45 @@
 package com.app.twitter_clone.kafka;
 
+import com.app.twitter_clone.dto.notification.NotificationResponse;
+import com.app.twitter_clone.mapper.NotificationMapper;
 import com.app.twitter_clone.model.Notification;
-import com.app.twitter_clone.repository.NotificationRepository;
-import com.app.twitter_clone.repository.UserRepository;
+import com.app.twitter_clone.service.NotificationService;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.stereotype.Service;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Component;
 
-@Service
+@Component
 public class NotificationEventConsumer {
 
-    private final NotificationRepository notificationRepository;
-    private final UserRepository userRepository;
+    private final NotificationService notificationService;
+    private final NotificationMapper notificationMapper;
+    private final SimpMessagingTemplate messagingTemplate;
 
     public NotificationEventConsumer(
-            NotificationRepository notificationRepository,
-            UserRepository userRepository
-    ) {
-        this.notificationRepository = notificationRepository;
-        this.userRepository = userRepository;
+            NotificationService notificationService,
+            NotificationMapper notificationMapper,
+            SimpMessagingTemplate messagingTemplate) {
+        this.notificationService = notificationService;
+        this.notificationMapper = notificationMapper;
+        this.messagingTemplate = messagingTemplate;
     }
 
-    @KafkaListener(
-            topics = NotificationEventProducer.TOPIC,
-            groupId = "twitter-clone"
-    )
-    public void consume(NotificationEvent event) {
+    @KafkaListener(topics = NotificationEventProducer.TOPIC, groupId = "twitter-clone")
+    public void handle(NotificationEvent event) {
+        Notification notification = notificationService.createNotification(
+                event.getRecipientId(),
+                event.getSenderId(),
+                event.getPostId(),
+                event.getType()
+        );
 
-        if (event.getRecipientId() == null) {
-            return;
-        }
+        NotificationResponse response = notificationMapper.toResponse(notification);
 
-        if (event.getSenderId() == null) {
-            return;
-        }
-
-        if (event.getRecipientId().equals(event.getSenderId())) {
-            return;
-        }
-
-        var recipient = userRepository.findById(event.getRecipientId())
-                .orElseThrow();
-
-        var sender = userRepository.findById(event.getSenderId())
-                .orElseThrow();
-
-        Notification notification = new Notification();
-
-        notification.setRecipient(recipient);
-        notification.setSender(sender);
-        notification.setType(event.getType());
-
-        notificationRepository.save(notification);
+        // Any client subscribed to /topic/notifications/{recipientId} receives this
+        // in real time, in addition to it being available via GET /notifications later.
+        messagingTemplate.convertAndSend(
+                "/topic/notifications/" + event.getRecipientId(),
+                response
+        );
     }
 }
